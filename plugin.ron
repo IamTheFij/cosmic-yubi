@@ -1,0 +1,13 @@
+(
+    name: "Yubico Auth",
+    description: "Yubico TOTP",
+    bin: (
+        path: "cosmic-yubi",
+    ),
+    query: (
+        persistent: false,
+        regex: "^yubi[: ]?.*"
+        history: false,
+    ),
+    icon: Name("password-manager"),
+)
