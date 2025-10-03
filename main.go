@@ -4,7 +4,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"syscall"
 
@@ -66,10 +65,76 @@ func getPasskey(s *ykoath.Select) ([]byte, error) {
 	return s.DeriveKey(password), nil
 }
 
+func handleRequest(results *gocosmic.PluginSearchResults, request gocosmic.Request) error {
+	// Handle termination requests
+	if request.Close || request.Exit || request.Interrupt {
+		// We can exit because the runner should actually be handling this for us
+		return nil
+	}
+
+	// Handle search for a requst
+	if request.Search != "" {
+		if results.IsEmpty() {
+			slog.Debugf("populating initial results list")
+			names, err := oath.List()
+			if err != nil {
+				return fmt.Errorf("failed listing names: %w", err)
+			}
+
+			// Generate list of search results
+			for i, name := range names {
+				results.Add(gocosmic.PluginSearchResult{
+					Id:          uint32(i + 1),
+					Name:        name.Name,
+					Description: "Generate TOTP",
+					Icon:        gocosmic.IconSource{Name: "password-manager"},
+				})
+			}
+		}
+
+		for _, result := range results.Search(request.Search) {
+			gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
+				Append: result,
+			})
+		}
+	} else if request.Complete > 0 {
+		result, found := results.Get(request.Complete)
+		slog.Debugf("completion request: %v: %+v", request.Complete, result)
+		if found {
+			gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
+				Fill: result.Name,
+			})
+		}
+	} else if request.Activate > 0 {
+		result, found := results.Get(request.Activate)
+		slog.Debugf("activate request: %v: %+v", request.Activate, result)
+		if found {
+			code, err := oath.Calculate(result.Name, func(string) error {
+				fmt.Fprintf(os.Stderr, "Touch key to generate code for %s...", result.Name)
+				gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
+					Fill: "Touch key to generate code",
+				})
+
+				return nil
+			})
+
+			if err != nil {
+				return fmt.Errorf("failed to retrieve credential: %w", err)
+			}
+
+			gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
+				Fill: code,
+			})
+		}
+	}
+
+	return nil
+}
+
 func usage() {
 	fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  Expects a request in the form of a JSON message via stdin and returns a result to stdout.\n\n")
 	fmt.Fprintf(flag.CommandLine.Output(), "Format can be found here https://github.com/pop-os/launcher?tab=readme-ov-file#json-ipc")
-	fmt.Fprint(flag.CommandLine.Output(), "If a touch is required for your code, the command will not return until the your key is touched.\n\n")
+	fmt.Fprintf(flag.CommandLine.Output(), "If a touch is required for your code, the command will not return until the your key is touched.\n\n")
 	flag.PrintDefaults()
 }
 
@@ -134,68 +199,6 @@ func main() {
 		return
 	}
 
-	// Initialize search results as they should be static per run
-	results := gocosmic.PluginSearchResults{}
-
-	for {
-		request, err := gocosmic.ReadRequestFromStdin()
-		if err == io.EOF {
-			return
-		}
-
-		slog.OnErrFatalf(err, "failed reading request from stdin")
-
-		// Handle termination requests
-		if request.Close || request.Exit || request.Interrupt {
-			// Gracefully exit
-			return
-		}
-
-		// Handle search for a requst
-		if request.Search != "" {
-			// We have no results, let's populate some
-			if results.IsEmpty() {
-				names, err := oath.List()
-				slog.OnErrFatalf(err, "failed listing names")
-
-				// Generate list of search results
-				for i, name := range names {
-					results.Add(gocosmic.PluginSearchResult{
-						Id:          uint32(i + 1),
-						Name:        name.Name,
-						Description: "Generate TOTP",
-						Icon:        gocosmic.IconSource{Name: "password-manager"},
-					})
-				}
-			}
-
-			for _, result := range results.Search(request.Search) {
-				gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
-					Append: result,
-				})
-			}
-		} else if request.Complete > 0 {
-			fmt.Printf("Complete!! %v", request.Complete)
-			result, found := results.Get(request.Complete)
-			if found {
-				fmt.Println("Found a completion")
-				gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
-					Fill: result.Name,
-				})
-			}
-		} else if request.Activate > 0 {
-			result, found := results.Get(request.Activate)
-			if found {
-				code, err := oath.Calculate(result.Name, func(string) error {
-					fmt.Fprintf(os.Stderr, "Touch key to generate code for %s...", result.Name)
-					return nil
-				})
-				slog.OnErrFatalf(err, "failed to retrieve credential")
-
-				gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
-					Fill: code,
-				})
-			}
-		}
-	}
+	plugin := gocosmic.NewPlugin(handleRequest)
+	plugin.Run()
 }
