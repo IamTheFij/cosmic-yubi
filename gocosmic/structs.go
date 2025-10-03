@@ -48,10 +48,29 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	// Try to parse directly into struct
-	if err := json.Unmarshal(data, r); err != nil {
+	type tempRequest struct {
+		Activate        uint32          `json:",omitzero"`
+		ActivateContext ActivateContext `json:",omitzero"`
+		Complete        uint32          `json:",omitzero"`
+		Context         uint32          `json:",omitzero"`
+		Quit            uint32          `json:",omitzero"`
+		Search          string          `json:",omitzero"`
+	}
+
+	temp := tempRequest{}
+
+	// Try to parse into temp struct
+	if err := json.Unmarshal(data, &temp); err != nil {
 		return fmt.Errorf("failed parsing response: %w", err)
 	}
+
+	// Copy values over
+	r.Activate = temp.Activate
+	r.ActivateContext = temp.ActivateContext
+	r.Complete = temp.Complete
+	r.Context = temp.Context
+	r.Quit = temp.Quit
+	r.Search = temp.Search
 
 	return nil
 }
@@ -114,7 +133,21 @@ func (r PluginResponse) MarshalJSON() ([]byte, error) {
 		return []byte(`"Finished"`), nil
 	}
 
-	result, err := json.Marshal(r)
+	type tempResponse struct {
+		Append       PluginSearchResult `json:",omitzero"`
+		Context      ResponseContext    `json:",omitzero"`
+		DesktopEntry DesktopEntry       `json:",omitzero"`
+		Fill         string             `json:",omitzero"`
+	}
+
+	temp := tempResponse{
+		Append:       r.Append,
+		Context:      r.Context,
+		DesktopEntry: r.DesktopEntry,
+		Fill:         r.Fill,
+	}
+
+	result, err := json.Marshal(temp)
 	if err != nil {
 		return result, fmt.Errorf("failed marshalling plugin response: %w", err)
 	}

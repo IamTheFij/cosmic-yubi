@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"syscall"
 
@@ -129,6 +130,8 @@ func main() {
 		for _, name := range names {
 			fmt.Println(name.Name)
 		}
+
+		return
 	}
 
 	// Initialize search results as they should be static per run
@@ -136,6 +139,10 @@ func main() {
 
 	for {
 		request, err := gocosmic.ReadRequestFromStdin()
+		if err == io.EOF {
+			return
+		}
+
 		slog.OnErrFatalf(err, "failed reading request from stdin")
 
 		// Handle termination requests
@@ -154,7 +161,7 @@ func main() {
 				// Generate list of search results
 				for i, name := range names {
 					results.Add(gocosmic.PluginSearchResult{
-						Id:          uint32(i),
+						Id:          uint32(i + 1),
 						Name:        name.Name,
 						Description: "Generate TOTP",
 						Icon:        gocosmic.IconSource{Name: "password-manager"},
@@ -167,14 +174,16 @@ func main() {
 					Append: result,
 				})
 			}
-		} else if request.Complete >= 0 {
+		} else if request.Complete > 0 {
+			fmt.Printf("Complete!! %v", request.Complete)
 			result, found := results.Get(request.Complete)
 			if found {
+				fmt.Println("Found a completion")
 				gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
 					Fill: result.Name,
 				})
 			}
-		} else if request.Activate >= 0 {
+		} else if request.Activate > 0 {
 			result, found := results.Get(request.Activate)
 			if found {
 				code, err := oath.Calculate(result.Name, func(string) error {
