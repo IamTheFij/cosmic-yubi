@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 
 	"git.iamthefij.com/iamthefij/cosmic-yubi/gocosmic"
@@ -19,6 +20,7 @@ var (
 	serviceName         = "com.iamthefij.cosmic-yubi"
 	version             = "dev"
 	errFailedValidation = errors.New("failed validation, password may be incorrect")
+	logFile             = "cosmic-yubi-debug.log"
 )
 
 func setPassword(s *ykoath.Select) error {
@@ -74,6 +76,9 @@ func handleRequest(results *gocosmic.PluginSearchResults, request gocosmic.Reque
 
 	// Handle search for a requst
 	if request.Search != "" {
+		query := strings.TrimSpace(
+			strings.TrimPrefix(strings.TrimPrefix(request.Search, "yubi"), ":"),
+		)
 		if results.IsEmpty() {
 			slog.Debugf("populating initial results list")
 			names, err := oath.List()
@@ -83,6 +88,7 @@ func handleRequest(results *gocosmic.PluginSearchResults, request gocosmic.Reque
 
 			// Generate list of search results
 			for i, name := range names {
+				slog.Debugf("adding result for %s", name.Name)
 				results.Add(gocosmic.PluginSearchResult{
 					Id:          uint32(i + 1),
 					Name:        name.Name,
@@ -92,11 +98,14 @@ func handleRequest(results *gocosmic.PluginSearchResults, request gocosmic.Reque
 			}
 		}
 
-		for _, result := range results.Search(request.Search) {
+		for _, result := range results.Search(query) {
+			slog.Debugf("writing result for %s", result.Name)
 			gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
 				Append: result,
 			})
 		}
+		slog.Debugf("wrote all responses to stdout")
+		gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{Finished: true})
 	} else if request.Complete > 0 {
 		result, found := results.Get(request.Complete)
 		slog.Debugf("completion request: %v: %+v", request.Complete, result)
@@ -105,6 +114,7 @@ func handleRequest(results *gocosmic.PluginSearchResults, request gocosmic.Reque
 				Fill: result.Name,
 			})
 		}
+		slog.Debugf("wrote completion responses to stdout")
 	} else if request.Activate > 0 {
 		result, found := results.Get(request.Activate)
 		slog.Debugf("activate request: %v: %+v", request.Activate, result)
@@ -126,6 +136,7 @@ func handleRequest(results *gocosmic.PluginSearchResults, request gocosmic.Reque
 				Fill: code,
 			})
 		}
+		slog.Debugf("wrote activate response to stdout")
 	}
 
 	return nil
@@ -140,17 +151,23 @@ func usage() {
 
 func main() {
 	flag.Usage = usage
-	flag.BoolVar(&slog.DebugLevel, "debug", false, "enable debug logging")
+	flag.BoolVar(&slog.DebugLevel, "debug", true, "enable debug logging")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	shouldSetPassword := flag.Bool("set-password", false, "prompt for key password and store in system keychain")
 	flag.Parse()
+
+	logFile, err := os.OpenFile(logFile, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+	slog.OnErrPanicf(err, "failed opening log file %v", err)
+	slog.SetOutput(logFile)
+
+	defer func() {
+		_ = logFile.Close()
+	}()
 
 	if *showVersion {
 		fmt.Printf("Version %s\n", version)
 		os.Exit(0)
 	}
-
-	var err error
 
 	oath, err = ykoath.New()
 	slog.OnErrFatalf(err, "failed to initialize new oath")

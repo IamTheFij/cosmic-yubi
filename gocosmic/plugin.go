@@ -36,14 +36,18 @@ func (p Plugin) Run() {
 		case request, ok := <-p.requests:
 			if !ok {
 				// If the requests channel is closed, we can exit
+				slog.Debugf("plugin requests channel is closed, exiting run loop")
 				return
 			}
+
+			slog.Debugf("recieved request %+v", request)
 
 			// If the request is asking us to close, we can signal done
 			if request.Close || request.Exit || request.Interrupt {
 				// Send the done signal and close the channel
+				slog.Debugf("plugin received Close/Exit/Interrupt request, signaling done channel")
 				p.done <- true
-				return
+				continue
 			}
 
 			err := p.handler(&p.results, request)

@@ -34,12 +34,13 @@ func ReadRequest(reader io.Reader) (Request, error) {
 }
 
 // ReadRequests will read from the reader and send results out on the results channel
-func ReadRequests(reader io.Reader, resultsChan chan Request, stopChan chan bool) {
+func ReadRequests(reader io.Reader, requests chan Request, done chan bool) {
 	decoder := json.NewDecoder(reader)
 	for {
 		select {
-		case <-stopChan:
-			close(resultsChan)
+		case <-done:
+			slog.Debugf("reader signal recieved on done, closing requests")
+			close(requests)
 			return
 
 		default:
@@ -49,7 +50,8 @@ func ReadRequests(reader io.Reader, resultsChan chan Request, stopChan chan bool
 			if err != nil {
 				if err == io.EOF {
 					// If we've reached EOF, then we close the results channel
-					close(resultsChan)
+					slog.Debugf("reader has reached EOF, closing requests channel and exiting read loop")
+					close(requests)
 					return
 				}
 
@@ -57,7 +59,15 @@ func ReadRequests(reader io.Reader, resultsChan chan Request, stopChan chan bool
 				continue
 			}
 
-			resultsChan <- req
+			// If the request is asking us to close, we can signal done
+			if req.Close || req.Exit || req.Interrupt {
+				// Send the done signal and close the channel
+				slog.Debugf("reader decoded Close/Exit/Interrupt request, closing requests channel")
+				close(requests)
+			} else {
+				requests <- req
+				slog.Debugf("request sent from reader to requests channel")
+			}
 		}
 	}
 }

@@ -5,8 +5,9 @@
         path: "cosmic-yubi",
     ),
     query: (
+        isolate: true,
         persistent: false,
-        regex: "^yubi[: ]?.*"
+        regex: "^yubi[: ]?.*",
         history: false,
     ),
     icon: Name("password-manager"),
