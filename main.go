@@ -118,11 +118,13 @@ func handleRequest(results *gocosmic.PluginSearchResults, request gocosmic.Reque
 	} else if request.Activate > 0 {
 		result, found := results.Get(request.Activate)
 		slog.Debugf("activate request: %v: %+v", request.Activate, result)
-		slog.Debugf("clear results")
+
+		slog.Debugf("clear search results")
 		_ = gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{Clear: true})
+
 		if found {
 			code, err := oath.Calculate(result.Name, func(string) error {
-				fmt.Fprintf(os.Stderr, "Touch key to generate code for %s...", result.Name)
+				// Prompt for touch
 				_ = gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{Append: gocosmic.PluginSearchResult{
 					Id:          0,
 					Name:        result.Name,
