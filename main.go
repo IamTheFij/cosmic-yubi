@@ -100,17 +100,17 @@ func handleRequest(results *gocosmic.PluginSearchResults, request gocosmic.Reque
 
 		for _, result := range results.Search(query) {
 			slog.Debugf("writing result for %s", result.Name)
-			gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
+			_ = gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
 				Append: result,
 			})
 		}
 		slog.Debugf("wrote all responses to stdout")
-		gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{Finished: true})
+		_ = gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{Finished: true})
 	} else if request.Complete > 0 {
 		result, found := results.Get(request.Complete)
 		slog.Debugf("completion request: %v: %+v", request.Complete, result)
 		if found {
-			gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
+			_ = gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
 				Fill: result.Name,
 			})
 		}
@@ -118,12 +118,18 @@ func handleRequest(results *gocosmic.PluginSearchResults, request gocosmic.Reque
 	} else if request.Activate > 0 {
 		result, found := results.Get(request.Activate)
 		slog.Debugf("activate request: %v: %+v", request.Activate, result)
+		slog.Debugf("clear results")
+		_ = gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{Clear: true})
 		if found {
 			code, err := oath.Calculate(result.Name, func(string) error {
 				fmt.Fprintf(os.Stderr, "Touch key to generate code for %s...", result.Name)
-				gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
-					Fill: "Touch key to generate code",
-				})
+				_ = gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{Append: gocosmic.PluginSearchResult{
+					Id:          0,
+					Name:        result.Name,
+					Description: "Touch key to generate code",
+					Icon:        gocosmic.IconSource{Name: "password-manager"},
+				}})
+				_ = gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{Finished: true})
 
 				return nil
 			})
@@ -132,7 +138,7 @@ func handleRequest(results *gocosmic.PluginSearchResults, request gocosmic.Reque
 				return fmt.Errorf("failed to retrieve credential: %w", err)
 			}
 
-			gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
+			_ = gocosmic.WriteResponseToStdout(gocosmic.PluginResponse{
 				Fill: code,
 			})
 		}
@@ -143,9 +149,9 @@ func handleRequest(results *gocosmic.PluginSearchResults, request gocosmic.Reque
 }
 
 func usage() {
-	fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  Expects a request in the form of a JSON message via stdin and returns a result to stdout.\n\n")
-	fmt.Fprintf(flag.CommandLine.Output(), "Format can be found here https://github.com/pop-os/launcher?tab=readme-ov-file#json-ipc")
-	fmt.Fprintf(flag.CommandLine.Output(), "If a touch is required for your code, the command will not return until the your key is touched.\n\n")
+	_, _ = fmt.Fprintf(flag.CommandLine.Output(), "Usage:\n  Expects a request in the form of a JSON message via stdin and returns a result to stdout.\n\n")
+	_, _ = fmt.Fprintf(flag.CommandLine.Output(), "Format can be found here https://github.com/pop-os/launcher?tab=readme-ov-file#json-ipc")
+	_, _ = fmt.Fprintf(flag.CommandLine.Output(), "If a touch is required for your code, the command will not return until the your key is touched.\n\n")
 	flag.PrintDefaults()
 }
 
@@ -172,7 +178,9 @@ func main() {
 	oath, err = ykoath.New()
 	slog.OnErrFatalf(err, "failed to initialize new oath")
 
-	defer oath.Close()
+	defer func() {
+		_ = oath.Close()
+	}()
 
 	if slog.DebugLevel {
 		oath.Debug = slog.Debugf
